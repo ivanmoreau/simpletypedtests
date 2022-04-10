@@ -28,11 +28,8 @@ data Expr a where
   Lpp :: Expr (α -> β) -> Expr α -> Expr β
   deriving Typeable
 
-data Definition α where
-  Def :: forall α. Typeable α => String -> Expr α -> Definition α
-
-data Definable where
-  Definable :: Typeable α => Definition α -> Definable
+data Definition where
+  Def :: forall α. Typeable α => String -> Expr α -> Definition
 
 data TypeSingleton a where
   TS :: a -> TypeSingleton a
@@ -63,14 +60,13 @@ getTS :: TypeSingleton a -> a
 getTS (TS a) = a
 
 -- Is the same type as the one in the definition
-isType :: (Typeable α, Typeable β, α ~ β) => TypeSingleton α -> Expr β -> Maybe (α :~~: β)
+isType :: (Typeable α, Typeable β) => TypeSingleton α -> Expr β -> Maybe (α :~~: β)
 isType f s =
   let a = typeOf (getTS f)
       b = typeOf (getExprT s) in
   eqTypeRep a b
 
-
-lookupDefinition :: String -> TypeSingleton α -> [Definition α] -> Maybe (Expr α)
+lookupDefinition :: Typeable α => String -> TypeSingleton α -> [Definition] -> Maybe (Expr α)
 lookupDefinition var _ [] = Nothing
 lookupDefinition var t ((Def var' t'):ds)
   | var == var' = let res = isType t t' in
@@ -84,10 +80,10 @@ lookupDefinition var t ((Def var' t'):ds)
 
 -- List of definitions
 
-builderDef :: Typeable α => String -> Expr α -> Definable
-builderDef a b = Definable $ Def a b
+builderDef :: Typeable α => String -> Expr α -> Definition
+builderDef a b = Def a b
 
-defs :: [Definable]
+defs :: [Definition]
 defs = [
   builderDef "false" $ Val False,
   builderDef "true" $ Val True,
