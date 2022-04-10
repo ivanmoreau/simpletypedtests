@@ -76,6 +76,19 @@ lookupDefinition var t ((Def var' t'):ds)
   | otherwise = lookupDefinition var t ds
 
 
+-- Substitution {- TODO Figure out substitution and β-redex -}
+subst :: Expr α -> Expr α -> Int -> Expr α
+subst (Var n) t c
+  | c == n = t
+  | otherwise = Var n
+subst (Lib n) t c = Lib n
+subst (Lpp t₀ t₁) t c = Lpp (subst t₀ t c) (subst t₁ t c)
+subst (Lam var t) t' c = Lam var $ subst t t' (c + 1)
+subst (Val a) t c = Val a
+
+
+
+
 ------ Test cases ------
 
 -- List of definitions
@@ -87,12 +100,19 @@ defs :: [Definition]
 defs = [
   builderDef "false" $ Val False,
   builderDef "true" $ Val True,
-  builderDef "zero" $ Val (0 :: Int)
+  builderDef "zero" $ Val (0 :: Int),
+  builderDef "succ" $ ((Lam "n" $ Val (succ :: Int -> Int)) :: Expr (Int -> Int))
   ]
 
 infere = Lam "n" $ Val False
 
 test = Fun (typeOf (1 :: Int)) (typeOf True)
 
+-- Test lookup
+-- This exist in the list
+test0 = lookupDefinition "succ" (TS (succ :: Int -> Int)) defs
+-- This does not exist in the list
+test1 = lookupDefinition "not" (TS (succ :: Int -> Int)) defs
+test2 = lookupDefinition "false" (TS (2 :: Int)) defs
 
 
