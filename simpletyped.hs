@@ -21,15 +21,30 @@ import Unsafe.Coerce (unsafeCoerce)
 
 
 data Expr a where
-  Val :: a -> Expr a
-  Var :: Int -> Expr a
-  Lib :: String -> Expr a
-  Lam :: String -> Expr α -> Expr (a -> β)
-  Lpp :: Expr (α -> β) -> Expr α -> Expr β
-  deriving Typeable
+  Var :: Typeable a => Int -> Expr a
+  Lib :: Typeable a => String -> Expr a
+  Lam :: Typeable a => String -> Expr β -> Expr (a -> β)
+  Lpp :: (Typeable α, Typeable β) => Expr (α -> β) -> Expr α -> Expr β
+  deriving (Typeable)
+
+instance Eq (Expr a) where
+  Var x == Var y = x == y
+  Lib x == Lib y = x == y
+  (Lam x e1) == (Lam y e2) = x == y && e1 == e2
+  (Lpp e1 e2) == (Lpp e3 e4) = e1 == (unsafeCoerce e3) && e2 == (unsafeCoerce e4)
+  _ == _ = False
+
+instance Show (Expr a) where
+  show (Var x) = show x
+  show (Lib x) = show x
+  show (Lam x e) = "λ" ++ show x ++ "." ++ show e
+  show (Lpp e1 e2) = "Lpp " ++ show e1 ++ " " ++ show e2
 
 data Definition where
   Def :: forall α. Typeable α => String -> Expr α -> Definition
+
+instance Show Definition where
+  show (Def x e) = show x ++ " = " ++ show e
 
 data TypeSingleton a where
   TS :: a -> TypeSingleton a
@@ -77,42 +92,61 @@ lookupDefinition var t ((Def var' t'):ds)
 
 
 -- Substitution {- TODO Figure out substitution and β-redex -}
-subst :: Expr α -> Expr α -> Int -> Expr α
+subst :: Expr α -> Expr β -> Int -> Expr α
 subst (Var n) t c
-  | c == n = t
+  | c == n = unsafeCoerce t
   | otherwise = Var n
 subst (Lib n) t c = Lib n
 subst (Lpp t₀ t₁) t c = Lpp (subst t₀ t c) (subst t₁ t c)
 subst (Lam var t) t' c = Lam var $ subst t t' (c + 1)
-subst (Val a) t c = Val a
 
+-- Application
+--app :: Expr (α -> β) -> Expr α -> Expr β
+--app (Lam var t) t' = (1 ↓ 0) $ subst t ((0 ↑ 1) t') 0
 
+-- β-redex
+betaRedex :: Expr α -> [Definition] -> Expr α
+betaRedex (Lpp (Lam var t) t') _ = (1 ↓ 0) $ subst t ( ( 1 ↑ 0 ) t' ) 0
+betaRedex (Lpp t₀ t₁) defs_ = Lpp (betaRedex t₀ defs_) (betaRedex t₁ defs_)
+betaRedex (Lam var t) defs_ = Lam var $ betaRedex t defs_
+betaRedex (Lib n) defs = 
+  let yy = TS $ getExprT $ Lib n
+      res = lookupDefinition n yy defs in
+  case res of
+    Just t -> betaRedex t defs
+    Nothing -> Lib n
+betaRedex t _ = t
 
+betaApply :: Expr α -> [Definition] -> Expr α
+betaApply x defs_ = let u = betaRedex x defs_ in
+  if u == x then x else betaApply u defs_
 
+-- Lambda defs
+-- λx.λy.x :: Bool
+false :: Expr Bool
+false = unsafeCoerce (Lam "x" (Lam "y" (Var 0 :: Expr Bool) :: Expr (Bool -> Bool)) :: Expr (Bool -> Bool -> Bool))
+true :: Expr Bool
+true = unsafeCoerce (Lam "x" (Lam "y" (Var 1 :: Expr Bool) :: Expr (Bool -> Bool)) :: Expr (Bool -> Bool -> Bool))
+if_ :: Typeable α => Expr (Bool -> α -> α -> α)
+if_ = unsafeCoerce $ (Lam "val" (Var 0 :: Expr Bool) :: Expr (Bool -> Bool))
 ------ Test cases ------
+defs :: [Definition]
+defs = [Def "true" true,
+        Def "false" false,
+        Def "if" if_] -- This doesn't work, and it's NOT supposed to. 
+                      -- If it was working, it would be a polymorphic function, 
+                      -- but this is supposed to be a Simple Typed Lambda Calculus.
+                      -- So, it's not supposed to work.
+                      -- But I think everything else is working.
+                      -- Anyways, cheers.
 
 -- List of definitions
 
 builderDef :: Typeable α => String -> Expr α -> Definition
 builderDef a b = Def a b
 
-defs :: [Definition]
-defs = [
-  builderDef "false" $ Val False,
-  builderDef "true" $ Val True,
-  builderDef "zero" $ Val (0 :: Int),
-  builderDef "succ" $ ((Lam "n" $ Val (succ :: Int -> Int)) :: Expr (Int -> Int))
-  ]
-
-infere = Lam "n" $ Val False
 
 test = Fun (typeOf (1 :: Int)) (typeOf True)
 
--- Test lookup
--- This exist in the list
-test0 = lookupDefinition "succ" (TS (succ :: Int -> Int)) defs
--- This does not exist in the list
-test1 = lookupDefinition "not" (TS (succ :: Int -> Int)) defs
-test2 = lookupDefinition "false" (TS (2 :: Int)) defs
 
 
